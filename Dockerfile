@@ -9,7 +9,7 @@ RUN yum clean all && \
     curl -fSL 'https://bootstrap.pypa.io/get-pip.py' | python
 
 # Copy app over
-ADD playbooks/appetite /apps/appetite
+ADD . /apps/appetite
 
 # HACK due to hardcoding in build scripts
 ARG USER_ID=0
