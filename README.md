@@ -1,4 +1,6 @@
 # Appetite
+
+[![Join the chat at https://gitter.im/appetitetalk/Lobby](https://badges.gitter.im/appetitetalk/Lobby.svg)](https://gitter.im/appetitetalk/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 Extensible services (i.e. Splunk, JIRA) have an ever growing list of apps (includes plugins and add ons).  Managing these apps can be a mess and only gets worse with complexity.  Appetite is a solution that answers the following questions:
 
 1. _Who and when did they install the app?_
