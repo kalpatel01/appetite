@@ -1,6 +1,10 @@
+[![Join the chat at https://gitter.im/appetitetalk/Lobby](https://badges.gitter.im/appetitetalk/Lobby.svg)](https://gitter.im/appetitetalk/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
+[![Build Status](https://travis-ci.org/Bridgewater/appetite.svg?branch=master)](https://travis-ci.org/Bridgewater/appetite)
+[![Coverage Status](https://coveralls.io/repos/github/Bridgewater/appetite/badge.svg?branch=master)](https://coveralls.io/github/Bridgewater/appetite?branch=master)
+
 # Appetite
 
-[![Join the chat at https://gitter.im/appetitetalk/Lobby](https://badges.gitter.im/appetitetalk/Lobby.svg)](https://gitter.im/appetitetalk/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 Extensible services (i.e. Splunk, JIRA) have an ever growing list of apps (includes plugins and add ons).  Managing these apps can be a mess and only gets worse with complexity.  Appetite is a solution that answers the following questions:
 
 1. _Who and when did they install the app?_
@@ -80,13 +84,6 @@ Accompanying [Appetite Splunk Application](./splunk/) to parse and analyze Appet
 * [Changelog](./docs/CHANGELOG.md)
 * [Contributing](./docs/contributing.md)
 * [Troubleshoot](./docs/troubleshoot.md)
-
-## TODO
-
-* Build ability to test ssh connections and app deployment on machines (locally).
-* Add base test class that defines common helper methods and any common setup.
-* Update module file names to follow PEP 8 standards (all lowercase with underscores - https://www.python.org/dev/peps/pep-0008/#package-and-module-names)
-* Add check for corrupted git repos (failed pulls).
 
 ## License
 
