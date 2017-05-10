@@ -17,7 +17,7 @@ before_script:
 script:
   - python tests/test.py
   - coverage run tests/test.py
-  - bandit -r .
+  - bandit -r . -lll
 
 after_success:
   - coveralls
