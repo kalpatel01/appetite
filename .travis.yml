@@ -15,6 +15,7 @@ before_script:
   - pip install bandit
 
 script:
+  - bandit -r . -lll
   - python tests/test.py
   - coverage run tests/test.py
 
