@@ -28,7 +28,7 @@ class RepoManager(object):
     """Main class to handle appetite repos
     """
     def __init__(self, _reponame, _repo_url, _repo_branch,
-                 _repo_path, _scratch_folder, _manifest, _dryrun=False):
+                 _repo_path, _scratch_folder, _manifest):
         """Repo Manager init
         :param _reponame: Name of repo
         :param _repo_url: URL of repo
@@ -36,7 +36,6 @@ class RepoManager(object):
         :param _repo_path: Local location of repo
         :param _scratch_folder: Abs path of scratch folder
         :param _manifest: Manifest to monitor and parse
-        :param _dryrun: False - Run function without any git interaction
         """
         self.paths = {
             'scratch_path': _scratch_folder,
@@ -59,8 +58,6 @@ class RepoManager(object):
         self.reponame = ""
         self.prev_commit = ""
 
-        self.dryrun = _dryrun
-
         repo_split = _repo_url.split('/')
         if len(repo_split) > 1:
             self.project = repo_split[-2]
@@ -80,8 +77,7 @@ class RepoManager(object):
 
                 output, rc = helpers.run(
                     "git clone -b %s %s" % (self.branch, self.url),
-                    self.paths['absolute_path'],
-                    self.dryrun)
+                    self.paths['absolute_path'])
 
                 if rc > 0:
                     self.delete_repo()
@@ -97,53 +93,82 @@ class RepoManager(object):
     def run_command(self, cmd):
         """Run command on repo directory
         """
-        return helpers.run(cmd, self.paths['repo_path'], self.dryrun)
+        return helpers.run(cmd, self.paths['repo_path'])
 
-    def set_commit_id(self, commit_id=None):
+    def get_checkout_id(self, commit_id=None):
+        """Generate the checkout id
+        """
+
+        return commit_id if commit_id else self.branch
+
+    def checkout_commit_id(self, commit_id=None):
         """Checks out the commit id for the repo
         """
-        checkout_id = commit_id if commit_id else self.branch
+
+        checkout_id = self.get_checkout_id(commit_id)
+
+        response = {"output": "",
+                    "rc": 0,
+                    "cmd": "git checkout {0}".format(checkout_id),
+                    "checkout_id": self.get_checkout_id(commit_id)}
 
         # Already checked out
         if self.prev_commit == checkout_id:
-            return True
+            return response
 
-        cmd = "git checkout {0}".format(checkout_id)
-        output, rc = self.run_command(cmd)
+        output, rc = self.run_command(response['cmd'])
 
-        if rc > 0:
+        response["output"] = output
+        response["rc"] = rc
+
+        return response
+
+    def set_commit_id(self, commit_id=None, _level=0):
+        """Checks out and check the commit id for the repo
+        """
+
+        response = self.checkout_commit_id(commit_id)
+
+        if response["rc"] > 0 and _level < 1:
             # Corrupted checkout state, try to recover
-            logger.warn("Possible corrupted checkout state", desc="Problem with checkout", error=output,
-                        commit_id=checkout_id, path=self.paths['repo_path'],
-                        cmd=cmd, track=self.track)
+            logger.warn("Possible corrupted checkout state", desc="Problem with checkout", error=response["output"],
+                        commit_id=response["checkout_id"], path=self.paths['repo_path'],
+                        cmd=response["cmd"], recursion_level=_level,
+                        track=self.track)
 
             # Want to guarantee that the branch is completely reset.
-            git_reset_output, rc = self.run_command("git reset --hard {0}".format(checkout_id)) #pylint: disable=unused-variable
+            git_reset_output, rc = self.run_command("git reset --hard {0}".format(self.branch)) #pylint: disable=unused-variable
 
             if rc < 1:
                 # Clean up git so there are no untracked files.
                 self.run_command("git clean -fd")
 
-        if rc > 0:
-            logger.errorout("set_commit_id", desc="Problem setting commit id", error=output,
-                            commit_id=checkout_id, path=self.paths['repo_path'],
-                            cmd=cmd, track=self.track)
+            self.set_commit_id(commit_id, _level+1)
 
-        self.prev_commit = checkout_id
+        if response["rc"] > 0:
+            logger.errorout("set_commit_id", desc="Problem setting commit id", error=response["output"],
+                            commit_id=response["checkout_id"], path=self.paths['repo_path'],
+                            cmd=response["cmd"], recursion_level=_level,
+                            track=self.track)
+
+        self.prev_commit = response["checkout_id"]
 
         return True
 
-    def get_commit_log(self):
+    def get_commit_log(self, commit_id=None):
         """Get the current commit log
         """
         try:
             log_object = {}
             for key, value in COMMIT_KEYS.items():
-                stdout, _rc = helpers.run(['git', 'log', '-1', '--pretty=\'%s\'' % value],
-                                          self.paths['repo_path'],
-                                          self.dryrun)
+                git_command = ['git', 'log', '-1', '--pretty=\'%s\'' % value]
+                if commit_id:
+                    git_command.insert(2, commit_id)
 
-                output = "XXXXX" if self.dryrun else helpers.filter_content(stdout)
+                stdout, _rc = helpers.run(git_command,
+                                          self.paths['repo_path'])
+
+                output = helpers.filter_content(stdout)
                 if key in consts.RENAME_COMMIT_LOG_KEYS:
                     key = consts.RENAME_COMMIT_LOG_KEYS[key]
                 log_object[key] = output
@@ -156,16 +181,18 @@ class RepoManager(object):
             logger.errorout("get_commit_log", error="Problem getting commit log",
                             error_msg=e.message, track=self.track)
 
-    def check_for_update(self):
+    def check_for_update(self, dry_run=False):
         """Checks for updates to the repo and if the manifest has changed
         """
         self.set_commit_id()
+
+        # If dry run do not pull from external repo
         stdout, _rc = helpers.run(
             "git pull",
             self.paths['repo_path'],
-            self.dryrun)
+            dry_run)
 
-        manifest_found = self.manifest in stdout
+        manifest_found = next((True for manifest_file in self.manifest if manifest_file in stdout), False)
 
         commit_log = self.get_commit_log()
         self.track["push_commit_id"] = commit_log['app_commit_id']

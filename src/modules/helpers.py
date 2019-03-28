@@ -6,6 +6,7 @@
 import os
 import uuid
 import datetime
+import time
 import re
 import imp
 import json
@@ -195,6 +196,11 @@ def _filter_content(filter_funct, contents):
 
 def function_importer(mod_str): # pylint: disable=too-complex
     """Import Module from external source"""
+
+    # Skip if imported function is too short
+    if len(mod_str) < 2:
+        return None
+
     mod_split = mod_str.split(":")
     if len(mod_split) != 2:
         logger.error("Can not import function", mod=mod_str)
@@ -363,6 +369,41 @@ def check_host(hostname, black_list, white_list):
             return True
 
     return False
+
+
+def get_stanza(filename, stanza_name):
+    """Get Information from a stanza in a configuration file"""
+
+    file_contents = get_contents(filename)
+
+    stanza_found = False
+
+    return_values = []
+
+    if file_contents:
+        for line in file_contents:
+            _line = line.strip()
+            _extracted_values = re.match(r"^\[(?P<stanza_name>\D*)] *", _line)
+
+            _groupdict = _extracted_values.groupdict() if _extracted_values else None
+
+            if _groupdict and 'stanza_name' in _groupdict and stanza_name == _groupdict['stanza_name']:
+                stanza_found = True
+                continue
+
+            if stanza_found:
+                # Found next stanza so exiting out
+                if re.search(r"^\[.*\] *", _line):
+                    break
+
+                if len(_line) > 1:
+                    keyvalue = line.split('=')
+                    if len(keyvalue) == 2:
+                        return_values.append({"name": keyvalue[0].strip(), "value": keyvalue[1].strip().strip(" '\"")})
+                    else:
+                        return_values.append(keyvalue[0].strip())
+
+    return return_values
 
 
 def split_naming(naming_format):
@@ -553,7 +594,9 @@ def content_process(apps_meta, status_types, hostname, track, isupdate):
         for seq in consts.DM_COMMANDS_SEQUENCE:
             # Preserve sequence order and remove dups
             source[seq] = []
-            [source[seq].append(commands) for app in changed_content for commands in app.method_info[seq] if commands not in source[seq]]  # pylint: disable=expression-not-assigned
+            [source[seq].append(commands) for app in changed_content # pylint: disable=expression-not-assigned
+             if isinstance(app.method_info, dict) and seq in app.method_info
+             for commands in app.method_info[seq] if commands not in source[seq]]
         source['restart'] = next((True for app in changed_content
                                   if app.method_info['restart']), False)
     else:
@@ -604,7 +647,7 @@ def merge_templates(templating_values):
     return templating_values
 
 
-def template_directory(app_path, templating_values):
+def template_directory(app_path, templating_values, regex_file_filter):
     """Template files
 
     Walks through all the files a directory and templates any jinja2 values
@@ -618,23 +661,25 @@ def template_directory(app_path, templating_values):
     tvalues = merge_templates(templating_values)
 
     for path, _dir, files in os.walk(app_path):
-        # sort files so logs read better and easier to get status
-        files.sort()
-        j2_env = Environment(autoescape=True, loader=FileSystemLoader(path))
-        for filename in files:
-            # Should not template version file since it may have
-            # regex commands that can break templating.
-            if filename.startswith(consts.VERSIONS_FILENAME):
-                continue
+        filtered_files = [filtered_file for filtered_file in files if re.search(regex_file_filter, filtered_file)]
 
+        if len(filtered_files) < 1:
+            continue
+
+        # sort files so logs read better and easier to get status
+        filtered_files.sort()
+        j2_env = Environment(autoescape=True, loader=FileSystemLoader(path))
+        for filename in filtered_files:
             file_path = os.path.join(path, filename)
+
             try:
                 file_content = j2_env.get_template(filename).render(tvalues)
 
-                with open(file_path, 'w') as f:
-                    f.write(file_content)
-            except Exception as e:
-                logger.errorout('Error templating file', file=file_path, error=e.message)
+                if file_content and len(file_content) > 0:
+                    with open(file_path, 'w') as f:
+                        f.write(file_content.encode('utf-8').strip())
+            except Exception as err:
+                logger.error('Error templating file', file=file_path, error=str(err))
 
 
 def move_regexed_files(regex_lines, src_path, dest_path): # pylint: disable=too-many-locals
@@ -716,7 +761,7 @@ class RunSingleInstance(object):
         :return: None
         """
         try:
-            if not self.__is_running:
+            if not self.__is_running and self.__filelock and not self.__filelock.closed:
                 fcntl.lockf(self.__filelock, fcntl.LOCK_UN)
                 self.__filelock.close()
                 os.unlink(self.__lockfile)

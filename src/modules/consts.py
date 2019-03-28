@@ -23,9 +23,10 @@ META_APP_CHANGED = 'changed'
 META_APP_DELETED = 'deleted'
 META_APP_ADDED = 'added'
 META_APP_UNCHANGED = 'unchanged'
+META_APP_SKIPPED = 'skipped'
 
 # Lists to check app statuses
-META_CURRENT = [META_APP_CHANGED, META_APP_ADDED, META_APP_UNCHANGED]
+META_CURRENT = [META_APP_CHANGED, META_APP_ADDED, META_APP_UNCHANGED, META_APP_SKIPPED]
 META_UPDATED = [META_APP_CHANGED, META_APP_ADDED, META_APP_DELETED]
 META_CHANGED = [META_APP_CHANGED, META_APP_ADDED]
 
@@ -83,3 +84,6 @@ LOCATION_LOCAL = 'local/app.conf'
 # Var used to set up version stanza im a file
 LAUNCHER_STANZA = 'launcher'
 VERSION_KEY = 'version'
+
+COMMIT_ID_REGEX_CHECK = "[a-fA-F0-9]{6,40}"
+TEMPLATE_REGEX = ".*\\.(txt|conf|secret)$|^passwd$"

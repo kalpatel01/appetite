@@ -13,6 +13,7 @@ import shutil
 import tarfile
 import json
 import time
+import re
 from distutils.dir_util import copy_tree
 from multiprocessing import Pool
 import argparse
@@ -52,15 +53,26 @@ class Appetite(object):
     def __init__(self):
         self.args = parse_args()
 
+        forced_args = {k: v for k, v in self.args.__dict__.items() if k in [
+            _param["kvargs"]["dest"] for _param in AppetiteArgs.ARGS_PARAMS
+        ]}
+
         # default path for configs
-        self.app_config_dir = os.path.abspath("../config")
+        self.app_config_dir = os.path.abspath("../%s" %
+                                              Consts.CONFIG_PATH_NAME)
 
         # Update args from config file
         if self.args.config_file:
             abs_config_file = os.path.abspath(os.path.dirname(
                 self.args.config_file))
+
             self.args.__dict__.update(
                 AppetiteArgs.load_args(self.args.config_file))
+
+            overwritten_params = {k: v for k, v in forced_args.items() if not AppetiteArgs.check_default(k, v)}
+
+            self.args.__dict__.update(overwritten_params)
+
             self.app_config_dir = abs_config_file
 
         self.app_commands_file = os.path.join(
@@ -131,8 +143,7 @@ class Appetite(object):
                                         self.args.repo_branch,
                                         "",
                                         self.scratch_location,
-                                        self.args.apps_manifest,
-                                        self.args.dryrun)
+                                        self.args.apps_manifest)
 
         Logger.debug_on(self.args.debug)
 
@@ -187,7 +198,7 @@ class Appetite(object):
         if not self.args.dryrun and repo_status < 0:
             Logger.errorout('Repo Error, Look at logs for details')
 
-        repo_check_status = self.repo_manager.check_for_update()
+        repo_check_status = self.repo_manager.check_for_update(dry_run=self.args.dryrun)
 
         Logger.add_track_info(self.repo_manager.track)
 
@@ -215,7 +226,7 @@ class Appetite(object):
 
             for host in self.args.hosts:
                 split_hostname = host.strip("'\"").split(':')
-                clean_hostname = split_hostname[0].split('.')[0].strip("'\"")
+                clean_hostname = split_hostname[0].strip("'\"")
 
                 # With user name, the ssh hostname can be defined.  This allows
                 # for IP addresses to be defined incase there is no DNS.
@@ -235,7 +246,9 @@ class Appetite(object):
                                                                           1))
 
         if self.appetite_hosts.is_empty():
-            Logger.errorout("No hosts found after filtering")
+            # Was annoying to have this message as an error
+            Logger.warn("No hosts found after name filtering")
+            sys.exit(1)
 
         if self.args.clean_metas:
             Helpers.delete_path(self.meta_folder)
@@ -268,6 +281,7 @@ class Appetite(object):
 
         :return: None
         """
+
         Helpers.check_file(self.manifest_path)
 
         with open(self.manifest_path, 'rU') as csvfile:
@@ -315,6 +329,11 @@ class Appetite(object):
                             app_test_file = "%s/%s.txt" % (app_folder, row_values.app_clean)
                             with open(app_test_file, 'wb') as touch:
                                 touch.write("")
+
+                    if len(row_values.commit_id) > 0 and \
+                            re.match(Consts.COMMIT_ID_REGEX_CHECK, row_values.commit_id) is None:
+                        Logger.critical("Commit ID does not match regex check: " % Consts.COMMIT_ID_REGEX_CHECK,
+                                        commit_id=row_values.commit_id)
 
                     # Go through each host and see
                     # if the app is needed for the host
@@ -428,6 +447,7 @@ class Appetite(object):
             if len(apps) < 1:
                 Logger.warn("Host with no apps", hostname=hostname)
                 continue
+
             # Parse the remote meta file from the host
             # This file might not exist
             remote_meta_file = host.local_meta_file
@@ -469,68 +489,60 @@ class Appetite(object):
             # Go through the apps and checks to see if there are any errors
             # This is where the remote meta is compared to the newly generated
             # lists of apps from the manifest
-            for app in apps:
-                raw_app_path = os.path.join(self.apps_folder, app.name)
+            for app in ordered_unique_apps:
+                if host.hostname == 'splunk-ds001-0c' and app.app == 'App06':
+                    print "found Host"
 
-                # Check the commit Id for problems
-                if app.commit_id:
-                    self.repo_manager.set_commit_id(app.commit_id)
-                else:  # pylint: disable=else-if-used
+                # Make sure commit id has value
+                if not app.commit_id:
+                    # pylint: disable=else-if-used
                     if self.args.strict_commitids:
                         Logger.error("Application with missing commit Id", hostname=hostname,
                                      app=app.name)
                         errors_found = True
                         continue
                     else:
-                        app._commit_id = master_commit_log['app_commit_id']  # pylint: disable=protected-access
-                        self.repo_manager.set_commit_id(app.commit_id)
+                        app.default_commit_id = master_commit_log['app_commit_id']
 
-                # Checks if app listed in the manifest
-                # exists with the correct commit id
-                if Helpers.check_path(raw_app_path):
-                    meta_to_append = None
-                    app.refresh_version_info(self.args.refname, Consts.META_APP_UNCHANGED)
-                    remote_meta = None
+                meta_to_append = None
+                app.refresh_version_info(self.args.refname, Consts.META_APP_UNCHANGED)
+                remote_meta = None
 
-                    # Check to see what has changed
-                    if remote_metas_loaded:
-                        # Searches remote meta to see if application already exists
-                        remote_meta = next((rmeta for rmeta in remote_metas
-                                            if app.check_names(rmeta)), None)
+                # Check to see what has changed
+                if remote_metas_loaded:
+                    # Searches remote meta to see if application already exists
+                    remote_meta = next((rmeta for rmeta in remote_metas
+                                        if app.check_names(rmeta)), None)
 
-                        if remote_meta:
+                    if remote_meta:
+                        check_commit_id = remote_meta.commit_id.startswith(app.commit_id) or\
+                                          app.commit_id.startswith(remote_meta.commit_id)
+
+                        if check_commit_id:
+                            # meta has not changed so use existing meta
+                            meta_to_append = app.clone
+                            meta_to_append.update_app_version(app)
+                        else:
                             # If app does exist on system, have the commit ids changed
-                            if remote_meta.commit_id != app.commit_id:
-                                meta_to_append = app.set_status_changed()
-                            else:
-                                # meta has not changed so use existing meta
-                                meta_to_append = app.clone
-                                meta_to_append.update_app_version(app)
+                            meta_to_append = app.set_status_changed()
 
-                            # to track if an app is removed from the remote meta
-                            remote_metas.remove(remote_meta)
+                        # to track if an app is removed from the remote meta
+                        remote_metas.remove(remote_meta)
 
-                    if not meta_to_append:
-                        # There is no remote meta so all files should be added
-                        meta_to_append = app.set_status_added()
+                if not meta_to_append:
+                    # There is no remote meta so all files should be added
+                    meta_to_append = app.set_status_added()
 
-                    if remote_meta and meta_to_append:
-                        meta_outcome = Helpers.debug_app_versions(meta_to_append,
-                                                                        remote_meta,
-                                                                        meta_to_append.status)
-                        Logger.debug("Check meta logic",
-                                     outcome=meta_outcome)
+                if remote_meta and meta_to_append:
+                    meta_outcome = Helpers.debug_app_versions(meta_to_append,
+                                                              remote_meta,
+                                                              meta_to_append.status)
 
-                        if meta_to_append.has_changed:
-                            Logger.info("App change", logic=meta_outcome)
+                    if meta_to_append.has_changed:
+                        Logger.info("App change", logic=meta_outcome)
 
+                if meta_to_append:
                     apps_meta.append(meta_to_append)
-                else:
-                    Logger.error("Missing application",
-                                 hostname=hostname,
-                                 app=app.name,
-                                 path=raw_app_path)
-                    continue
 
             if remote_metas_loaded and len(remote_metas) > 0:
                 # Any apps left in the remote meta do not exist in the current
@@ -588,12 +600,32 @@ class Appetite(object):
                     Helpers.create_path(app_path, True)
                     raw_app_path = os.path.join(self.apps_folder, updated_app.name)
 
-                    self.repo_manager.set_commit_id(updated_app.commit_id)
-
                     if updated_app.update_method_is_copy:
                         app_dest = os.path.join(app_path, updated_app.app_clean)
                     else:
                         app_dest = app_path
+
+                    if self.args.skip_payload:
+                        updated_app.update_commit_log(updated_app.commit_id)
+                        continue
+
+                    # Checkout app and check commit Id for problems
+                    self.repo_manager.set_commit_id(updated_app.commit_id)
+                    updated_app.update_commit_log()
+
+                    # Checks if app exists with the correct commit id
+                    if not Helpers.check_path(raw_app_path):
+                        Logger.error("Missing application",
+                                     hostname=hostname,
+                                     app=updated_app.name,
+                                     path=raw_app_path,
+                                     commit_id=updated_app.commit_id)
+
+                        # Remove app from change list since it is not being updated
+                        for app_meta_obj in apps_meta:
+                            if app_meta_obj.app == updated_app.name:
+                                app_meta_obj.set_status_skipped()
+                        continue
 
                     copy_tree(raw_app_path, app_dest)
 
@@ -617,9 +649,9 @@ class Appetite(object):
                                          hostname=hostname,
                                          app=updated_app.name)
 
-                        # Users should not have the capability to include files from the
-                        # global ignore.
-                        Helpers.delete_path(ignore_dir)
+                    # Users should not have the capability to include files from the
+                    # global ignore.
+                    Helpers.delete_path(ignore_dir)
 
                     # Defined folders/files are to move out of application.
                     # This is defined in the deploymentmethods.conf
@@ -640,16 +672,17 @@ class Appetite(object):
                                                                                   app_dest)
 
                             if lookup_inclusion_results['errors_found']:
-                                Logger.error("Lookup inclusion error found",
-                                             paths=lookup_inclusion_results['path_errors'],
-                                             hostname=hostname,
-                                             app=updated_app.name)
+                                Logger.warn("Lookup inclusion error found",
+                                            paths=lookup_inclusion_results['path_errors'],
+                                            hostname=hostname,
+                                            app=updated_app.name,
+                                            todo="Remove file/path from inclusion..")
                                 # Problem with host inclusion,
                                 # move to next host
                                 continue
 
                             updated_app.method_info['inclusions'] = \
-                                lookup_inclusion_results['filed_moved']
+                                lookup_inclusion_results['files_moved']
 
                             # Update objects with inclusions
                             updated_app.copy_value_to_method_info('inclusions', apps_meta)
@@ -657,16 +690,22 @@ class Appetite(object):
 
                     Helpers.delete_path(ignore_dir)
 
-                    if use_templating and not updated_app.method_info['skip_templating']:
-                        # Can template based on vars from templated
-                        # values, hosts vars and app vars
-                        Helpers.template_directory(app_dest,
-                                                   [self.template_values,
-                                                    host.to_dict,
-                                                    updated_app.to_dict])
+                    _template_vars = [self.template_values,
+                                      host.to_dict,
+                                      updated_app.to_dict]
+
+                    _template_vars_merged = Helpers.merge_templates(_template_vars)
 
                     # Should only change access and create version file if a whole app is copied
                     if updated_app.update_method_is_copy:
+                        if use_templating and not updated_app.method_info['skip_templating']:
+                            # Can template based on vars from templated
+                            # values, hosts vars and app vars
+                            Helpers.template_directory(app_dest,
+                                                       _template_vars_merged,
+                                                       self.args.template_regex
+                                                       )
+
                         for host_path, host_dir, host_files in os.walk(app_dest):  # pylint: disable=unused-variable
                             for host_file in host_files:
                                 # Splunk apps can have active binaries in multiple languages
@@ -675,12 +714,20 @@ class Appetite(object):
                                 chmod = 0755
                                 os.chmod(os.path.join(host_path, host_file), chmod)
 
-                        with open(os.path.join(app_dest, Helpers.get_app_version_filename()), "w") as f:
-                            f.write(updated_app.to_json)
+                        # Only update app version file if doing a full copy
+                        if not updated_app.method_info['no_appetite_changes']:
+                            AppVersioning.create_app_version(app_dest,
+                                                             updated_app.commit_log['app_abbrev_commit_id'])
 
-                        AppVersioning.create_app_version(app_dest,
-                                                         updated_app.
-                                                         commit_log['app_abbrev_commit_id'])
+            host_updates = Helpers.content_process(apps_meta,
+                                                   Consts.META_UPDATED,
+                                                   hostname,
+                                                   self.track,
+                                                   True)
+
+            if host_updates["change_count"] < 1:
+                Logger.error("Detected changes but no apps to update.  Probably missing..",
+                             hostname=hostname)
 
             apps_distro = Helpers.content_wrapper(apps_meta,
                                                   Consts.META_CURRENT,
@@ -695,42 +742,38 @@ class Appetite(object):
                 Helpers.create_path(host.local_meta_file)
                 shutil.copy(master_meta, host.local_meta_file)
 
-            # Always want clean logs ingested
-            selected_apps = Helpers.select_and_update_apps(apps_meta,
-                                                           Consts.META_CURRENT,
-                                                           False)
+            host.updates = host_updates
 
-            self.create_meta_log(tmp_hostname_meta, '', selected_apps, Helpers.get_utc())
+            if not self.args.skip_payload:
+                # Always want clean logs ingested
+                selected_apps = Helpers.select_and_update_apps(apps_meta,
+                                                               Consts.META_CURRENT,
+                                                               False)
 
-            host.updates = Helpers.content_process(apps_meta,
-                                                   Consts.META_UPDATED,
-                                                   hostname,
-                                                   self.track,
-                                                   True)
+                self.create_meta_log(tmp_hostname_meta, '', selected_apps, Helpers.get_utc())
 
-            # Create the meta change file
-            self.create_meta_files(tmp_hostname_meta,
-                                   '_update',
-                                   Helpers.content_convert(host.updates))
+                # Create the meta change file
+                self.create_meta_files(tmp_hostname_meta,
+                                       '_update',
+                                       Helpers.content_convert(host.updates))
 
-            # Clean updates file for logging
-            selected_apps = Helpers.select_and_update_apps(apps_meta,
-                                                           Consts.META_UPDATED,
-                                                           True)
+                # Clean updates file for logging
+                selected_apps = Helpers.select_and_update_apps(apps_meta,
+                                                               Consts.META_UPDATED,
+                                                               True)
 
-            self.create_meta_log(tmp_hostname_meta, '_update', selected_apps, Helpers.get_utc())
+                self.create_meta_log(tmp_hostname_meta, '_update', selected_apps, Helpers.get_utc())
+
+                # Package (tar) up host tmp directories for distribution
+                tar = tarfile.open(os.path.join(self.tars_folder, "%s.tar.gz" % tarname), "w:gz")
+                tar.add(tmp_hostname_dir, arcname=os.path.basename(self.base_name))
+                tar.close()
 
             Logger.info("Changes found", updates=Helpers.content_wrapper(apps_meta,
                                                                          Consts.META_UPDATED,
                                                                          hostname,
                                                                          self.track,
                                                                          True))
-
-            # Package (tar) up host tmp directories for distribution
-            tar = tarfile.open(os.path.join(self.tars_folder, "%s.tar.gz" % tarname), "w:gz")
-            tar.add(tmp_hostname_dir, arcname=os.path.basename(self.base_name))
-            tar.close()
-
             changes_found = True
 
         if errors_found:

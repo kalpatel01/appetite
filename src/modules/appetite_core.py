@@ -170,7 +170,7 @@ class AppetiteApp(object):
         self.app_clean = _app_clean
         self.source_hostname = _hostname
         self.method_info = self._deployment_method.data.copy()
-        self._commit_id = None if _commit_id == 'N/A' or len(_commit_id) == 0 else _commit_id
+        self.ref_commit_id = None if _commit_id == 'N/A' or len(_commit_id) == 0 else _commit_id
         self.is_firstrun = _is_firstrun
         self.track = self.__repo_mng.track
         self.status = consts.META_APP_UNCHANGED
@@ -232,7 +232,7 @@ class AppetiteApp(object):
         if self.commit_log:
             return self.commit_log['app_commit_id']
 
-        return self._commit_id if self._commit_id else ""
+        return self.ref_commit_id if self.ref_commit_id else ""
 
     @property
     def name(self):
@@ -303,6 +303,18 @@ class AppetiteApp(object):
         return self.reset_app_version_status(consts.META_APP_DELETED)
 
     @property
+    def is_skipped(self):
+        """Check to see if the application is skipped"""
+        return self.status == consts.META_APP_SKIPPED
+
+    def set_status_skipped(self):
+        """Set status to skipped
+
+        Typically if application is not found or is not going to be deployed
+        """
+        return self.reset_app_version_status(consts.META_APP_SKIPPED)
+
+    @property
     def is_changed(self):
         """Checks to see if the app is changed"""
         return self.status == consts.META_APP_CHANGED
@@ -351,12 +363,16 @@ class AppetiteApp(object):
     def refresh_version_info(self, repo_source, status):
         """Information about the application used for versioning"""
 
-        self.commit_log = self.__repo_mng.get_commit_log()
         self.repo_source = repo_source
 
         self.reset_app_version_status(status)
 
         return self
+
+    def update_commit_log(self, commit_id=None):
+        """Refresh the commit log with the provided or latest commit id"""
+
+        self.commit_log = self.__repo_mng.get_commit_log(commit_id)
 
     def __eq__(self, other):
         """Operator =="""
@@ -417,7 +433,7 @@ class AppetiteApp(object):
             return
 
         for arg in argv:
-            app_list = arg['content'] if 'content' in arg else arg
+            app_list = arg['content'] if isinstance(arg, dict) and 'content' in arg else arg
 
             app_content = next((app_content for app_content in app_list
                                 if app_content.app == self.app), None)

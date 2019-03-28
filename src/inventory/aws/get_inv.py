@@ -8,7 +8,7 @@ import argparse
 import boto3
 
 
-def get_instance_info(region, tag, name_filter):
+def get_instance_info(region, name_filter, tag_filter):
     """Get information about instances.
 
     Returns:
@@ -20,14 +20,14 @@ def get_instance_info(region, tag, name_filter):
     ec2_filter = [{'Name': 'instance-state-name', 'Values': ['running']}]
 
     if name_filter:
-        ec2_filter.append({'Name': 'tag:%s' % tag, 'Values': [name_filter]})
+        ec2_filter.append({'Name': 'tag:%s' % tag_filter, 'Values': [name_filter.strip("'")]})
 
     instances_found = list(ec2.instances.filter(Filters=ec2_filter).all())
     try:
         if len(instances_found) < 1:
             return []
 
-        return [{'name': next((tag['Value'] for tag in inst_info.tags if tag['Key'] == 'Name'), ""),
+        return [{'name': next((tag['Value'] for tag in inst_info.tags if tag['Key'] == tag_filter), ""),
                  'instance': inst_info
                  } for inst_info in instances_found]
     except Exception as e: # pylint: disable=bare-except
@@ -70,14 +70,14 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    instances_info = get_instance_info(args.region, args.tag, args.name_query)
+    instances_info = get_instance_info(args.region, args.name_query, args.tag)
 
     for inst in instances_info:
         instance = inst['instance']
 
-        if re.search(args.regex_filter, inst['name']):
+        if re.search(args.regex_filter.strip("'"), inst['name']):
             if args.just_ip:
                 output_str = "%s" % instance.private_ip_address
             else:
-                output_str = "%s:%s" % (inst['name'].split('.')[0], instance.private_ip_address)
+                output_str = "%s:%s" % (inst['name'], instance.private_ip_address)
             print '"%s"' % output_str if args.add_quotes else output_str

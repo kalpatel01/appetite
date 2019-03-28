@@ -61,6 +61,19 @@ def load_args(args_file):
     return args_dict
 
 
+def check_default(dest, value):
+    """Checks to see if the argument still has the default value"""
+
+    for _param in ARGS_PARAMS:
+        if 'dest' in _param['kvargs'] and 'default' in _param['kvargs']:
+            if _param['kvargs']['dest'] == dest:
+                if _param['kvargs']['default'] == value:
+                    return True
+                break
+
+    return False
+
+
 def args_check(args):
     """Function to check if arg params are valid"""
 
@@ -94,6 +107,7 @@ add_arg('--commands-conf', metavar='cd',
 
 # Params needed for appetite to work
 add_arg('--hosts', metavar='c', nargs='*', type=str,
+        dest='hosts',
         help='hosts to filter')
 
 add_arg('--host-classes', metavar='hc', nargs='*', type=str,
@@ -195,7 +209,7 @@ add_arg('--new-host-brakes', action='store_true',
         help='If a new host if found, override thread count to 1.')
 
 add_arg('-d', '--debug', action='store_true',
-        default=False,
+        default=False, dest="debug",
         help='Turns on debugging output')
 
 add_arg('--disable-logging', action='store_true',
@@ -222,7 +236,7 @@ add_arg('--skip-repo-trigger', action='store_true',
              'the way though.')
 
 add_arg('-c', '--clean', action='store_true',
-        default=False,
+        default=False, dest="clean",
         help='Delete temp directories')
 
 add_arg('--clean-repo', action='store_true',
@@ -263,3 +277,13 @@ add_arg('--deployment-methods-file', metavar='t', type=str,
         default=consts.DEPLOYMENT_METHODS_FILENAME,
         dest="deployment_methods_file",
         help='The deployment methods file appetite will look for.')
+
+add_arg('--template-regex', metavar='t', type=str,
+        default=consts.TEMPLATE_REGEX,
+        dest="template_regex",
+        help='Regex for filtering out files while templating.')
+
+add_arg('--skip-payload', action='store_true',
+        default=False, dest="skip_payload",
+        help='Skip creating payloads speeding up run-time. '
+             'Used for testing and dryrun.')

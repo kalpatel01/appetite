@@ -1,0 +1,3 @@
+[submodule "tests/repo/appetite"]
+	path = tests/repo/appetite
+	url = https://github.com/kalpatel01/appetite_test.git

@@ -136,6 +136,14 @@ Used for testing Appetite logic and seeing what the payload will be.
 <a name="deployment_methods_file"></a>The deployment methods file appetite will look for.  
 default: `deploymentmethods.conf`
 
+    --template-regex
+<a name="template_regex"></a>Regex for filtering out files while templating.
+default: `.*\.(txt|conf|secret)$|^passwd$`
+
+    --skip-payload
+<a name="param_skip_payload"></a>Skip creating app payloads speeding up run-time. Used for testing and dryrun.
+
+
 ## Templating
 
 [Jinja2](http://jinja.pocoo.org/) templating is used to add variables to app configuration files and command lines.

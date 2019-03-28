@@ -6,7 +6,7 @@ RUN yum clean all && \
     rpm --import "http://download.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-7" && \
     yum install -y yum-plugin-ovl && \
     yum install -y epel-release && \
-    yum install -y make gcc libffi-devel python-devel openssl-devel && \
+    yum install -y make gcc libffi-devel python-devel openssl-devel git && \
     yum update -y && \
     curl -fSL 'https://bootstrap.pypa.io/get-pip.py' | python
 
@@ -20,6 +20,7 @@ ARG USER_ID=0
 RUN useradd appetite_user && \
     mkdir /var/appetite && \
     cd /apps/appetite/src/ && \
+    pip install -r requirements.txt && \
     python setup.py install && \
     chown -R appetite_user: /apps/appetite/ /var/appetite
 

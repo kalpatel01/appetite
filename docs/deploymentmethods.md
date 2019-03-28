@@ -109,6 +109,11 @@ Default is empty.
         If path is "etc/licenses/enterprise/", it will copy the files with an app containing licenses into the path, not the directory itself.
 * Default is empty.
 
+**no_appetite_changes** = true|false
+* Appetite will update/add the apps.conf app version, this will disable the feature.
+This is to remedy any file hash mismatch problems since it won't change/add a file.
+* Defaults to false.
+
 **restart** = true|false
 * If true, restarts service on the client when a member app or a directly configured app is updated.  This is defined in the [commands.conf](../configs/demo_splunk/commands.conf).
 * Defaults to false.
